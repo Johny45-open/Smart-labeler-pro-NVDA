@@ -11,12 +11,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.data_path = os.path.join(os.path.dirname(__file__), 'labels.json')
         self.labels = self.load_labels()
         self.pending_key = None
+        self._rebuild_label_indexes()
 
     def load_labels(self):
         if os.path.exists(self.data_path):
             try:
                 with open(self.data_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    labels = json.load(f)
+                    return labels if isinstance(labels, dict) else {}
             except:
                 return {}
         return {}
@@ -24,6 +26,52 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     def save_labels(self):
         with open(self.data_path, 'w', encoding='utf-8') as f:
             json.dump(self.labels, f, ensure_ascii=False, indent=4)
+        self._rebuild_label_indexes()
+
+    def _rebuild_label_indexes(self):
+        self._labeled_apps = set()
+        self._v2_labels_by_simple_key = {}
+        self._legacy_labels_by_app_and_automation_id = set()
+        self._legacy_apps_without_automation_id = set()
+
+        for stored_key, label in list(self.labels.items()):
+            if stored_key.startswith('v1:'):
+                try:
+                    key_data = json.loads(stored_key[3:])
+                except:
+                    continue
+                app_name = self._to_text(key_data.get('appName', 'unknown'))
+                self._labeled_apps.add(app_name)
+                continue
+
+            if stored_key.startswith('v2:'):
+                try:
+                    key_data = json.loads(stored_key[3:])
+                except:
+                    continue
+                simple_key = self._get_simple_key_from_key_data(key_data)
+                if not simple_key:
+                    continue
+                self._labeled_apps.add(self._to_text(key_data.get('appName', 'unknown')))
+                self._v2_labels_by_simple_key.setdefault(simple_key, []).append((stored_key, label))
+                continue
+
+            legacy_index_data = self._get_legacy_index_data(stored_key)
+            if legacy_index_data:
+                app_name, automation_id = legacy_index_data
+                if automation_id:
+                    self._legacy_labels_by_app_and_automation_id.add(legacy_index_data)
+                else:
+                    self._legacy_apps_without_automation_id.add(app_name)
+                self._labeled_apps.add(app_name)
+
+    def _get_legacy_index_data(self, stored_key):
+        parts = stored_key.split(':', 5)
+        if len(parts) < 6:
+            return None
+        app_name = parts[0]
+        automation_id = parts[1]
+        return (app_name, automation_id)
 
     def _to_text(self, value):
         if value is None:
@@ -57,6 +105,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return default
         return value
 
+    def _get_app_name(self, obj):
+        try:
+            app_name = obj.appModule.appName if obj.appModule else 'unknown'
+        except:
+            app_name = 'unknown'
+        return self._to_text(app_name)
+
     def _get_automation_id(self, obj):
         automation_id = self._get_attr(obj, 'automationID', '')
         if automation_id:
@@ -78,11 +133,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             return None
         return index
 
-    def _get_obj_index(self, obj):
+    def _get_obj_index(self, obj, sibling_index=None):
         index = self._get_raw_obj_index(obj)
         if index is not None:
             return index
-        sibling_index = self._get_sibling_index(obj)
+        if sibling_index is None:
+            sibling_index = self._get_sibling_index(obj)
         if sibling_index is not None:
             return sibling_index
         return ''
@@ -209,7 +265,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             'className': self._get_class_name(obj),
             'controlID': self._to_text(self._get_attr(obj, 'windowControlID', '')),
             'frameworkID': self._to_text(self._get_uia_attr(obj, 'cachedFrameworkID', '')),
-            'index': self._to_text(self._get_obj_index(obj)),
+            'index': self._to_text(self._get_obj_index(obj, sibling_index=sibling_index)),
             'name': self._to_text(self._get_attr(obj, 'name', '')),
             'positionInfo': self._get_position_info(obj),
             'role': self._to_text(self._get_attr(obj, 'role', '')),
@@ -231,13 +287,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         path.reverse()
         return path
 
-    def _get_key_data(self, obj, include_location=False):
-        try:
-            app_name = obj.appModule.appName if obj.appModule else 'unknown'
-        except:
-            app_name = 'unknown'
+    def _get_key_data(self, obj, include_location=False, app_name=None):
+        if app_name is None:
+            app_name = self._get_app_name(obj)
         return {
-            'appName': self._to_text(app_name),
+            'appName': app_name,
             'object': self._get_obj_part(obj, include_location=include_location),
             'parentPath': self._get_parent_path(obj),
         }
@@ -257,11 +311,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             obj_part.pop('location', None)
         return key
 
-    def _get_location_compatible_label(self, key, key_data):
+    def _get_location_compatible_label(self, key, key_data, candidates=None):
         matches = []
-        for stored_key, label in list(self.labels.items()):
-            if not stored_key.startswith('v2:'):
-                continue
+        if candidates is None:
+            candidates = [
+                (stored_key, label)
+                for stored_key, label in list(self.labels.items())
+                if stored_key.startswith('v2:')
+            ]
+        for stored_key, label in candidates:
             try:
                 stored_key_data = json.loads(stored_key[3:])
             except:
@@ -281,11 +339,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             pass
         return first_label
 
-    def _get_legacy_key(self, obj):
-        try:
-            app_name = obj.appModule.appName if obj.appModule else 'unknown'
-        except:
-            app_name = 'unknown'
+    def _get_legacy_key(self, obj, app_name=None):
+        if app_name is None:
+            app_name = self._get_app_name(obj)
         automation_id = self._get_attr(obj, 'automationID', '')
         role = self._get_attr(obj, 'role', '')
         name = self._get_attr(obj, 'name', '')
@@ -299,17 +355,78 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     def _legacy_key_is_safe(self, obj):
         return bool(self._get_automation_id(obj))
 
+    def _get_simple_key_data(self, obj, app_name=None):
+        if app_name is None:
+            app_name = self._get_app_name(obj)
+        return {
+            'appName': app_name,
+            'automationID': self._get_automation_id(obj),
+            'role': self._to_text(self._get_attr(obj, 'role', '')),
+            'name': self._to_text(self._get_attr(obj, 'name', '')),
+        }
+
+    def _dump_simple_key(self, key_data):
+        return 'v1:' + json.dumps(key_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+    def _get_simple_key_from_key_data(self, key_data):
+        try:
+            obj_part = key_data.get('object', {})
+        except:
+            return ''
+        if not isinstance(obj_part, dict):
+            return ''
+        simple_key_data = {
+            'appName': self._to_text(key_data.get('appName', 'unknown')),
+            'automationID': self._to_text(obj_part.get('automationID', '')),
+            'role': self._to_text(obj_part.get('role', '')),
+            'name': self._to_text(obj_part.get('name', '')),
+        }
+        return self._dump_simple_key(simple_key_data)
+
+    def _get_simple_key(self, obj):
+        return self._dump_simple_key(self._get_simple_key_data(obj))
+
     def event_gainFocus(self, obj, nextHandler):
         nextHandler()
-        key_data = self._get_key_data(obj)
-        key = self._dump_key(key_data)
-        label = self.labels.get(key)
-        if label is None:
-            label = self._get_location_compatible_label(key, key_data)
-        if label is None:
-            legacy_key = self._get_legacy_key(obj)
+
+        if not self.labels:
+            return
+
+        app_name = self._get_app_name(obj)
+        if app_name not in self._labeled_apps:
+            return
+
+        # Levný předfiltr: plný klíč má smysl počítat jen pro prvky,
+        # které odpovídají některému uloženému popisku.
+        simple_key_data = self._get_simple_key_data(obj, app_name=app_name)
+        simple_key = self._dump_simple_key(simple_key_data)
+        label = self.labels.get(simple_key)
+
+        v2_candidates = self._v2_labels_by_simple_key.get(simple_key, [])
+        automation_id = simple_key_data.get('automationID', '')
+        legacy_possible = (
+            (
+                bool(automation_id)
+                and (app_name, automation_id) in self._legacy_labels_by_app_and_automation_id
+            )
+            or app_name in self._legacy_apps_without_automation_id
+        )
+
+        if label is None and not v2_candidates and not legacy_possible:
+            return
+
+        if label is None and v2_candidates:
+            key_data = self._get_key_data(obj, app_name=app_name)
+            key = self._dump_key(key_data)
+            label = self.labels.get(key)
+            if label is None:
+                label = self._get_location_compatible_label(key, key_data, candidates=v2_candidates)
+
+        if label is None and legacy_possible:
+            legacy_key = self._get_legacy_key(obj, app_name=app_name)
             if legacy_key in self.labels and self._legacy_key_is_safe(obj):
                 label = self.labels[legacy_key]
+
         if label:
             ui.message(label)
     
