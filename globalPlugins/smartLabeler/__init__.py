@@ -4,7 +4,6 @@ import ui
 import wx
 import json
 import os
-import subprocess
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     def __init__(self):
@@ -26,24 +25,26 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         with open(self.data_path, 'w', encoding='utf-8') as f:
             json.dump(self.labels, f, ensure_ascii=False, indent=4)
 
-    def _get_obj_index(self, obj):
-        try:
-            return obj.indexInParent
-        except:
-            return 0
-
     def _get_key(self, obj):
         app_name = obj.appModule.appName if obj.appModule else 'unknown'
         automation_id = getattr(obj, 'automationID', '')
         role = getattr(obj, 'role', '')
         name = getattr(obj, 'name', '')
-        parent_name = getattr(obj.parent, 'name', 'no_parent') if obj.parent else 'no_parent'
-        index = self._get_obj_index(obj)
-        return f'{app_name}:{automation_id}:{role}:{name}:{parent_name}:{index}'
+        window_class = obj.windowClassName
+        
+        # Cesta rodičů
+        path = []
+        p = obj.parent
+        while p:
+            if p.name:
+                path.append(p.name)
+            p = p.parent
+        path_str = "->".join(path)
+        
+        return f'{app_name}:{window_class}:{automation_id}:{role}:{name}:{path_str}'
 
     def event_gainFocus(self, obj, nextHandler):
         nextHandler()
-        # Vždy načteme nejaktuálnější stav souboru, kdyby jej uživatel upravil v editoru
         self.labels = self.load_labels()
         key = self._get_key(obj)
         if key in self.labels:
@@ -80,7 +81,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.pending_key = None
     
     def script_manageLabels(self, gesture):
-        """Otevře soubor s popisky v textovém editoru."""
         if os.path.exists(self.data_path):
             os.startfile(self.data_path)
             ui.message("Soubor s popisky otevřen v editoru.")
