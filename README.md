@@ -1,3 +1,5 @@
+<div lang = "cs">
+
 # SmartLabeler
 
 SmartLabeler je doplněk pro NVDA, který umožňuje uložit vlastní popisek k aktuálně zaměřenému prvku a nechat si ho automaticky přečíst při dalším přesunu fokusu na stejný prvek.
