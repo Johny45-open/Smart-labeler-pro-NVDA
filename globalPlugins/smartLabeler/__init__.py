@@ -5,6 +5,7 @@ import wx
 import json
 import os
 import subprocess
+from .dialogs import LabelManagerDialog
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     def __init__(self):
@@ -108,7 +109,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                     lines = [line.strip() for line in text.splitlines() if line.strip()]
                     self.labels[self.pending_key] = lines
                     self.save_labels()
-                    ui.message(f'Uloženo {len(lines)} popisků.')
+                    ui.message(f"Uloženo {len(lines)} popisků: {text}")
                 else:
                     ui.message('Schránka je prázdná.')
             else:
@@ -141,7 +142,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                     new_lines = [line.strip() for line in text.splitlines() if line.strip()]
                     self.labels[key].extend(new_lines)
                     self.save_labels()
-                    ui.message(f'Přidáno {len(new_lines)} popisků. Celkem: {len(self.labels[key])}')
+                    ui.message(f"Přidáno: {text}. Celkem popisků: {len(self.labels[key])}")
                 else:
                     ui.message('Schránka je prázdná.')
             else:
@@ -150,11 +151,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             ui.message('Nepodařilo se otevřít schránku.')
     
     def script_manageLabels(self, gesture):
-        if os.path.exists(self.data_path):
-            os.startfile(self.data_path)
-            ui.message("Soubor s popisky otevřen v editoru.")
-        else:
-            ui.message("Soubor s popisky zatím neexistuje.")
+        self.labels = self.load_labels()
+        
+        def show_dialog():
+            dlg = LabelManagerDialog(None, self.labels)
+            if dlg.ShowModal() == wx.ID_OK:
+                self.save_labels()
+                ui.message("Popisky aktualizovány.")
+            dlg.Destroy()
+            
+        wx.CallAfter(show_dialog)
 
     __gestures = {
         'kb:NVDA+control+l': 'prepareLabel',
