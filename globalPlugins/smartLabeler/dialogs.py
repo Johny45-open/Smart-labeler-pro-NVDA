@@ -2,7 +2,7 @@ import wx
 
 class LabelManagerDialog(wx.Dialog):
     def __init__(self, parent, labels):
-        super().__init__(parent, title="Správa popisků SmartLabeler", size=(600, 500))
+        super().__init__(parent, title="Správa popisků SmartLabeler", size=(600, 600))
         self.labels = labels
         self.selected_key = None
         self.init_ui()
@@ -11,10 +11,14 @@ class LabelManagerDialog(wx.Dialog):
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # Seznam prvků (klíčů)
+        # Seznam prvků
         self.list_ctrl = wx.ListBox(panel, choices=list(self.labels.keys()))
         sizer.Add(wx.StaticText(panel, label="Vyberte prvek:"), 0, wx.ALL, 5)
         sizer.Add(self.list_ctrl, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Tlačítko pro smazání prvku
+        del_item_btn = wx.Button(panel, label="Smazat celý prvek")
+        sizer.Add(del_item_btn, 0, wx.ALL, 5)
 
         # Pole pro úpravu popisků
         self.text_ctrl = wx.TextCtrl(panel, style=wx.TE_MULTILINE)
@@ -35,8 +39,8 @@ class LabelManagerDialog(wx.Dialog):
         # Události
         self.list_ctrl.Bind(wx.EVT_LISTBOX, self.on_select)
         save_btn.Bind(wx.EVT_BUTTON, self.on_save)
+        del_item_btn.Bind(wx.EVT_BUTTON, self.on_delete_item)
         
-        # Zajištění fokusu při otevření
         self.list_ctrl.SetFocus()
 
     def on_select(self, event):
@@ -47,8 +51,22 @@ class LabelManagerDialog(wx.Dialog):
         else:
             self.text_ctrl.SetValue(str(labels))
 
+    def on_delete_item(self, event):
+        if not self.selected_key:
+            return
+        
+        if wx.MessageBox(f"Opravdu chcete smazat všechny popisky pro prvek '{self.selected_key}'?", 
+                         "Potvrzení smazání", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+            del self.labels[self.selected_key]
+            self.list_ctrl.Delete(self.list_ctrl.GetSelection())
+            self.text_ctrl.Clear()
+            self.selected_key = None
+            wx.MessageBox("Prvek smazán.", "Info", wx.OK | wx.ICON_INFORMATION)
+
     def on_save(self, event):
         if not self.selected_key:
+            # Pokud nic není vybráno, jen zavřeme dialog
+            self.EndModal(wx.ID_CANCEL)
             return
         
         new_text = self.text_ctrl.GetValue()
