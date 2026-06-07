@@ -88,6 +88,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         ui.message(labels_list[self.last_label_index])
 
     def script_prepareLabel(self, gesture):
+        """Příprava objektu pro pojmenování. Po stisku je nutné zkopírovat text do schránky a potvrdit zkratkou NVDA+Ctrl+Shift+L."""
         obj = api.getFocusObject()
         if not obj:
             ui.message('Nebylo možné získat fokus.')
@@ -96,6 +97,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         ui.message('Objekt připraven k pojmenování. Zkopírujte jeden nebo více řádků do schránky a stiskněte NVDA+Ctrl+Shift+L pro uložení.')
 
     def script_saveFromClipboard(self, gesture):
+        """Uloží obsah schránky jako popisky pro naposledy vybraný objekt."""
         if not self.pending_key:
             ui.message('Nejprve vyberte objekt pomocí NVDA+Ctrl+L.')
             return
@@ -151,6 +153,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             ui.message('Nepodařilo se otevřít schránku.')
     
     def script_manageLabels(self, gesture):
+        """Otevře dialog pro správu uložených popisků."""
         self.labels = self.load_labels()
         
         def show_dialog():
