@@ -4,7 +4,6 @@ import ui
 import wx
 import json
 import os
-import subprocess
 from .dialogs import LabelManagerDialog
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -25,35 +24,51 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 return {}
         return {}
 
-    def save_labels(self):
-        with open(self.data_path, 'w', encoding='utf-8') as f:
-            json.dump(self.labels, f, ensure_ascii=False, indent=4)
-
-    def _get_obj_index(self, obj):
+    def save_labels(self, labels_to_save=None):
         try:
-            return obj.indexInParent
+            data = labels_to_save if labels_to_save is not None else self.labels
+            with open(self.data_path, 'w', encoding='utf-8') as f:
+                if not data:
+                    f.write('{}')
+                else:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
         except:
-            return 0
+            pass
 
     def _get_key(self, obj):
+        import re
+        
+        def sanitize(text):
+            return re.sub(r'\d+', '', str(text)).strip()
+
         app_name = obj.appModule.appName if obj.appModule else 'unknown'
-        automation_id = getattr(obj, 'automationID', '')
-        role = getattr(obj, 'role', '')
-        name = getattr(obj, 'name', '')
-        window_class = obj.windowClassName
+        role = sanitize(getattr(obj, 'role', ''))
+        name = sanitize(getattr(obj, 'name', ''))
+        
+        uia_class = sanitize(getattr(obj, 'UIAClassName', ''))
+        if not uia_class:
+            uia_class = sanitize(getattr(obj, 'windowClassName', ''))
+        
         path = []
         p = obj.parent
         while p:
-            if p.name:
-                path.append(p.name)
+            role_p = sanitize(str(p.role))
+            if role_p:
+                path.append(role_p)
             p = p.parent
         path_str = "->".join(path)
-        index = self._get_obj_index(obj)
-        return f'{app_name}:{window_class}:{automation_id}:{role}:{name}:{path_str}:{index}'
+        
+        key = f'{app_name}:{uia_class}:{role}:{name}:{path_str}'
+        return re.sub(r'\d+', '', key)
 
     def event_gainFocus(self, obj, nextHandler):
         nextHandler()
-        self.labels = self.load_labels()
+        
+        if not os.path.exists(self.data_path):
+            self.labels = {}
+        else:
+            self.labels = self.load_labels()
+        
         key = self._get_key(obj)
         self.last_focused_key = key
         self.last_label_index = 0
@@ -62,7 +77,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             labels_list = self.labels[key]
             if isinstance(labels_list, list) and len(labels_list) > 0:
                 ui.message(labels_list[0])
-            elif isinstance(labels_list, str):
+            elif isinstance(labels_list, str) and labels_list:
                 ui.message(labels_list)
 
     def script_speakAdditionalInfo(self, gesture):
@@ -94,7 +109,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             ui.message('Nebylo možné získat fokus.')
             return
         self.pending_key = self._get_key(obj)
-        ui.message('Objekt připraven k pojmenování. Zkopírujte jeden nebo více řádků do schránky a stiskněte NVDA+Ctrl+Shift+L pro uložení.')
+        ui.message('Objekt připraven k pojmenování. Zkopírujte text do schránky a stiskněte NVDA+Ctrl+Shift+L pro uložení.')
 
     def script_saveFromClipboard(self, gesture):
         """Uloží obsah schránky jako popisky pro naposledy vybraný objekt."""
@@ -110,14 +125,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 if text:
                     lines = [line.strip() for line in text.splitlines() if line.strip()]
                     self.labels[self.pending_key] = lines
-                    self.save_labels()
-                    ui.message(f"Uloženo {len(lines)} popisků: {text}")
+                    self.save_labels(self.labels)
+                    ui.message(f"Uloženo {len(lines)} popisků: {lines[0]}")
                 else:
                     ui.message('Schránka je prázdná.')
-            else:
-                ui.message('Nepodařilo se přečíst schránku.')
-        else:
-            ui.message('Nepodařilo se otevřít schránku.')
         self.pending_key = None
 
     def script_appendFromClipboard(self, gesture):
@@ -137,30 +148,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 if text:
                     if key not in self.labels:
                         self.labels[key] = []
-                    
                     if isinstance(self.labels[key], str):
                         self.labels[key] = [self.labels[key]]
-                    
                     new_lines = [line.strip() for line in text.splitlines() if line.strip()]
                     self.labels[key].extend(new_lines)
-                    self.save_labels()
-                    ui.message(f"Přidáno: {text}. Celkem popisků: {len(self.labels[key])}")
-                else:
-                    ui.message('Schránka je prázdná.')
-            else:
-                ui.message('Nepodařilo se přečíst schránku.')
-        else:
-            ui.message('Nepodařilo se otevřít schránku.')
+                    self.save_labels(self.labels)
+                    ui.message(f"Přidáno: {len(new_lines)} popisků. Celkem: {len(self.labels[key])}. Aktuální: {self.labels[key][-1]}")
     
     def script_manageLabels(self, gesture):
         """Otevře dialog pro správu uložených popisků."""
         self.labels = self.load_labels()
         
         def show_dialog():
-            dlg = LabelManagerDialog(None, self.labels)
+            dlg = LabelManagerDialog(None, self)
             if dlg.ShowModal() == wx.ID_OK:
-                self.save_labels()
-                ui.message("Popisky aktualizovány.")
+                self.labels = self.load_labels()
             dlg.Destroy()
             
         wx.CallAfter(show_dialog)

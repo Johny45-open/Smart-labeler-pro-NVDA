@@ -1,9 +1,10 @@
 import wx
 
 class LabelManagerDialog(wx.Dialog):
-    def __init__(self, parent, labels):
+    def __init__(self, parent, plugin):
         super().__init__(parent, title="Správa popisků SmartLabeler", size=(600, 600))
-        self.labels = labels
+        self.plugin = plugin
+        self.labels = plugin.labels
         self.selected_key = None
         self.init_ui()
 
@@ -57,7 +58,17 @@ class LabelManagerDialog(wx.Dialog):
         
         if wx.MessageBox(f"Opravdu chcete smazat všechny popisky pro prvek '{self.selected_key}'?", 
                          "Potvrzení smazání", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
-            del self.labels[self.selected_key]
+            # Odstraníme ze slovníku
+            if self.selected_key in self.labels:
+                del self.labels[self.selected_key]
+            
+            # Synchronizujeme instanci v pluginu
+            self.plugin.labels = self.labels
+            
+            # DŮLEŽITÉ: Uložíme smazání přímo do souboru přes plugin s aktuálními daty
+            self.plugin.save_labels(self.labels)
+            
+            # Aktualizujeme UI
             self.list_ctrl.Delete(self.list_ctrl.GetSelection())
             self.text_ctrl.Clear()
             self.selected_key = None
@@ -65,11 +76,13 @@ class LabelManagerDialog(wx.Dialog):
 
     def on_save(self, event):
         if not self.selected_key:
-            # Pokud nic není vybráno, jen zavřeme dialog
             self.EndModal(wx.ID_CANCEL)
             return
         
         new_text = self.text_ctrl.GetValue()
         new_labels = [line.strip() for line in new_text.splitlines() if line.strip()]
         self.labels[self.selected_key] = new_labels
+        
+        # Uložíme přímo přes plugin
+        self.plugin.save_labels()
         self.EndModal(wx.ID_OK)
