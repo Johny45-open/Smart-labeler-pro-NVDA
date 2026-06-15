@@ -4,7 +4,12 @@ import ui
 import wx
 import json
 import os
-from .dialogs import LabelManagerDialog
+import logging
+import re
+from .dialogs import LabelManagerDialog  # OPRAVENO: Přidán chybějící import správce
+
+# Konfigurace loggeru - bude logovat do NVDA logu
+logger = logging.getLogger('nvda.smartLabeler')
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
     def __init__(self):
@@ -14,13 +19,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         self.pending_key = None
         self.last_focused_key = None
         self.last_label_index = 0
+        logger.info("SmartLabeler: Plugin initialized.")
 
     def load_labels(self):
         if os.path.exists(self.data_path):
             try:
                 with open(self.data_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except:
+            except Exception as e:
+                logger.error(f"SmartLabeler: Error loading labels: {e}")
                 return {}
         return {}
 
@@ -30,46 +37,70 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             with open(self.data_path, 'w', encoding='utf-8') as f:
                 if not data:
                     f.write('{}')
+                    logger.info("SmartLabeler: All labels deleted, file emptied.")
                 else:
                     json.dump(data, f, ensure_ascii=False, indent=4)
-        except:
-            pass
+                    logger.info(f"SmartLabeler: Labels saved. Current keys: {list(data.keys())}")
+        except Exception as e:
+            logger.error(f"SmartLabeler: Error saving labels: {e}")
 
     def _get_key(self, obj):
-        import re
-        
         def sanitize(text):
             return re.sub(r'\d+', '', str(text)).strip()
 
-        app_name = obj.appModule.appName if obj.appModule else 'unknown'
-        role = sanitize(getattr(obj, 'role', ''))
-        name = sanitize(getattr(obj, 'name', ''))
+        logger.info(f"SmartLabeler: DEBUGGING _get_key for object {obj.name}:")
+        raw_app_name = obj.appModule.appName if obj.appModule else 'unknown'
+        raw_name = getattr(obj, 'name', '')
+        raw_role = getattr(obj, 'role', '')
+        raw_automation_id = getattr(obj, 'automationID', '')
+        raw_uia_class = getattr(obj, 'UIAClassName', '')
+        raw_window_class = getattr(obj, 'windowClassName', '')
+
+        app_name = sanitize(raw_app_name)
+        name = sanitize(raw_name)
+        role = sanitize(raw_role)
+        automation_id = sanitize(raw_automation_id)
         
-        uia_class = sanitize(getattr(obj, 'UIAClassName', ''))
+        uia_class = sanitize(raw_uia_class)
         if not uia_class:
-            uia_class = sanitize(getattr(obj, 'windowClassName', ''))
+            uia_class = sanitize(raw_window_class)
         
+        # OPRAVENO: Hlubší a detailnější hierarchie rodičů proti kolizím
         path = []
         p = obj.parent
-        while p:
-            role_p = sanitize(str(p.role))
-            if role_p:
-                path.append(role_p)
+        parent_level = 0
+        while p and parent_level < 5:
+            p_role = sanitize(getattr(p, 'role', ''))
+            p_name = sanitize(getattr(p, 'name', ''))
+            p_id = sanitize(getattr(p, 'automationID', ''))
+            
+            p_parts = [p_role]
+            if p_id:
+                p_parts.append(f"ID[{p_id}]")
+            if p_name and p_name != name:
+                p_parts.append(f"N({p_name})")
+                
+            parent_token = "-".join(p_parts)
+            if parent_token:
+                path.append(parent_token)
+                
             p = p.parent
-        path_str = "->".join(path)
+            parent_level += 1
+            
+        path_str = "->".join(path) 
         
-        key = f'{app_name}:{uia_class}:{role}:{name}:{path_str}'
+        key = f'{app_name}:{uia_class}:{role}:{name}:{automation_id}:{path_str}'
+        logger.info(f"SmartLabeler:   Final generated key: '{key}'")
         return re.sub(r'\d+', '', key)
 
     def event_gainFocus(self, obj, nextHandler):
         nextHandler()
         
-        if not os.path.exists(self.data_path):
-            self.labels = {}
-        else:
-            self.labels = self.load_labels()
-        
+        # OPRAVENO: Odstraněno neustálé čtení z disku. Data se berou bezpečně z self.labels v paměti.
         key = self._get_key(obj)
+        
+        logger.info(f"SmartLabeler: Focus gained on object. Key: '{key}'")
+        
         self.last_focused_key = key
         self.last_label_index = 0
         
@@ -103,12 +134,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         ui.message(labels_list[self.last_label_index])
 
     def script_prepareLabel(self, gesture):
-        """Příprava objektu pro pojmenování. Po stisku je nutné zkopírovat text do schránky a potvrdit zkratkou NVDA+Ctrl+Shift+L."""
+        """Příprava objektu pro pojmenování."""
         obj = api.getFocusObject()
         if not obj:
             ui.message('Nebylo možné získat fokus.')
             return
         self.pending_key = self._get_key(obj)
+        logger.info(f"SmartLabeler: Prepared label for key: {self.pending_key}")
         ui.message('Objekt připraven k pojmenování. Zkopírujte text do schránky a stiskněte NVDA+Ctrl+Shift+L pro uložení.')
 
     def script_saveFromClipboard(self, gesture):
