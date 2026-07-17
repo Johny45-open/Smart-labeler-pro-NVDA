@@ -5,12 +5,18 @@ class LabelManagerDialog(wx.Dialog):
         super().__init__(parent, title="Správa popisků SmartLabeler", size=(600, 600))
         self.plugin = plugin
         self.labels = plugin.labels
+        self.all_keys = list(self.labels.keys())
         self.selected_key = None
         self.init_ui()
 
     def init_ui(self):
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Vyhledávání
+        sizer.Add(wx.StaticText(panel, label="Hledat prvek:"), 0, wx.ALL, 5)
+        self.search_ctrl = wx.TextCtrl(panel)
+        sizer.Add(self.search_ctrl, 0, wx.EXPAND | wx.ALL, 5)
 
         # Seznam prvků
         self.list_ctrl = wx.ListBox(panel, choices=list(self.labels.keys()))
@@ -38,11 +44,32 @@ class LabelManagerDialog(wx.Dialog):
         panel.SetSizer(sizer)
         
         # Události
+        self.search_ctrl.Bind(wx.EVT_TEXT, self.on_filter)
         self.list_ctrl.Bind(wx.EVT_LISTBOX, self.on_select)
         save_btn.Bind(wx.EVT_BUTTON, self.on_save)
         del_item_btn.Bind(wx.EVT_BUTTON, self.on_delete_item)
         
-        self.list_ctrl.SetFocus()
+        self.search_ctrl.SetFocus()
+
+    def on_filter(self, event):
+        search_text = self.search_ctrl.GetValue().strip()
+        if not search_text:
+            filtered = list(self.all_keys)
+        else:
+            filtered = [k for k in self.all_keys if self._matches(k, search_text)]
+        self.list_ctrl.Clear()
+        self.list_ctrl.AppendItems(filtered)
+        self.selected_key = None
+        self.text_ctrl.Clear()
+
+    def _matches(self, key, search_text):
+        search_text = search_text.lower()
+        if search_text in key.lower():
+            return True
+        labels = self.labels.get(key, [])
+        if isinstance(labels, str):
+            labels = [labels]
+        return any(search_text in label.lower() for label in labels)
 
     def on_select(self, event):
         self.selected_key = self.list_ctrl.GetStringSelection()
@@ -69,7 +96,8 @@ class LabelManagerDialog(wx.Dialog):
             self.plugin.save_labels(self.labels)
             
             # Aktualizujeme UI
-            self.list_ctrl.Delete(self.list_ctrl.GetSelection())
+            self.all_keys.remove(self.selected_key)
+            self.on_filter(None)
             self.text_ctrl.Clear()
             self.selected_key = None
             wx.MessageBox("Prvek smazán.", "Info", wx.OK | wx.ICON_INFORMATION)
