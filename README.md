@@ -21,8 +21,8 @@ Doplněk je navržen tak, aby spolehlivě fungoval i v moderních a komplexních
 | `NVDA+Ctrl+L` | **Označit prvek:** Připraví aktuálně zaměřený objekt pro uložení popisku. |
 | `NVDA+Ctrl+Shift+L` | **Uložit ze schránky:** Vezme text ze schránky a uloží jej jako popisky pro označený prvek. (Více řádků ve schránce = více popisků). |
 | `NVDA+Ctrl+Alt+A` | **Přidat informaci:** Okamžitě přidá aktuální obsah schránky jako další řádek (informaci) k aktuálnímu prvku. |
-| `NVDA+Alt+L` | **Číst další informaci:** Cyklicky prochází a předčítá uložené popisky pro aktuální prvek. |
-| `NVDA+Ctrl+Alt+L` | **Správce popisků:** Otevře databázi popisků (`labels.json`) v Poznámkovém bloku pro ruční úpravy nebo zálohu. |
+| `NVDA+Alt+L` | **Číst další informaci:** Cyklicky prochází a předčítá uložené popisky pro aktuální prvek. | 
+| `NVDA+Ctrl+Alt+L` | **Správce popisků:** Otevře databázi popisků (`labels.json`) v Poznámkovém bloku pro ruční úpravy nebozálohu. |
 
 ## Použití
 
@@ -49,7 +49,7 @@ Všechna data jsou uložena v souboru `labels.json` ve složce doplňku. Díky z
 
 - Minimální verze NVDA: `2023.1`
 - Testováno s NVDA: `2026.1`
-- Aktuální verze doplňku: `1.2`
+- Aktuální verze doplňku: `1.5`
 
 ## Vývoj a přispívání
 
